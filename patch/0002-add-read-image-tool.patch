@@ -1,0 +1,104 @@
+diff --git a/pkg/tools/read_image.go b/pkg/tools/read_image.go
+new file mode 100644
+index 0000000..29ffeb8
+--- /dev/null
++++ b/pkg/tools/read_image.go
+@@ -0,0 +1,98 @@
++package tools
++
++import (
++	"context"
++	"encoding/base64"
++	"fmt"
++	"os"
++	"path/filepath"
++	"strings"
++
++	"github.com/sipeed/picoclaw/pkg/config"
++)
++
++// ReadImageTool allows the LLM to read and analyze local image files.
++// The image is converted to base64 Data URL and returned for vision model processing.
++type ReadImageTool struct {
++	workspace   string
++	restrict    bool
++	maxFileSize int
++}
++
++func NewReadImageTool(workspace string, restrict bool, maxFileSize int) *ReadImageTool {
++	if maxFileSize <= 0 {
++		maxFileSize = config.DefaultMaxMediaSize
++	}
++	return &ReadImageTool{
++		workspace:   workspace,
++		restrict:    restrict,
++		maxFileSize: maxFileSize,
++	}
++}
++
++func (t *ReadImageTool) Name() string { return "read_image" }
++func (t *ReadImageTool) Description() string {
++	return "Read an image file and prepare it for vision analysis. Returns the image as base64 Data URL that can be used by the LLM to analyze the image."
++}
++
++func (t *ReadImageTool) Parameters() map[string]any {
++	return map[string]any{
++		"type": "object",
++		"properties": map[string]any{
++			"path": map[string]any{
++				"type":        "string",
++				"description": "Path to the image file. Relative paths are resolved from workspace.",
++			},
++		},
++		"required": []string{"path"},
++	}
++}
++
++func (t *ReadImageTool) Execute(ctx context.Context, args map[string]any) *ToolResult {
++	path, _ := args["path"].(string)
++	if strings.TrimSpace(path) == "" {
++		return ErrorResult("path is required")
++	}
++
++	resolved, err := validatePath(path, t.workspace, t.restrict)
++	if err != nil {
++		return ErrorResult(fmt.Sprintf("invalid path: %v", err))
++	}
++
++	info, err := os.Stat(resolved)
++	if err != nil {
++		return ErrorResult(fmt.Sprintf("file not found: %v", err))
++	}
++	if info.IsDir() {
++		return ErrorResult("path is a directory, expected an image file")
++	}
++	if info.Size() > int64(t.maxFileSize) {
++		return ErrorResult(fmt.Sprintf(
++			"file too large: %d bytes (max %d bytes)",
++			info.Size(), t.maxFileSize,
++		))
++	}
++
++	// Detect MIME type
++	mime := detectMediaType(resolved)
++	if !strings.HasPrefix(mime, "image/") {
++		return ErrorResult(fmt.Sprintf("not an image file: %s", mime))
++	}
++
++	// Read and encode to base64
++	data, err := os.ReadFile(resolved)
++	if err != nil {
++		return ErrorResult(fmt.Sprintf("failed to read file: %v", err))
++	}
++
++	encoded := base64.StdEncoding.EncodeToString(data)
++	dataURL := fmt.Sprintf("data:%s;base64,%s", mime, encoded)
++
++	// Return the Data URL for the LLM to analyze
++	filename := filepath.Base(resolved)
++	return &ToolResult{
++		ForLLM: fmt.Sprintf("Image '%s' (%s, %d bytes) loaded for analysis:\n%s",
++			filename, mime, info.Size(), dataURL),
++		Silent: false,
++	}
++}

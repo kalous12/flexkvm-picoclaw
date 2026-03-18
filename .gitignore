@@ -11,6 +11,7 @@ out/
 # Go build
 picoclaw/bin/
 picoclaw/pkg/
+config.json
 
 # Misc
 *.log

@@ -1,7 +1,7 @@
 #
 # Picoclaw ARMv7 Cross-Compilation Makefile
 # Target Platform: RV1106 (arm-rockchip830-linux-uclibcgnueabihf)
-# Tag: v0.2.1
+# Tag: v0.2.3
 #
 
 SHELL:=/bin/bash
@@ -19,7 +19,7 @@ CROSS_CC := $(CROSS_COMPILE)gcc
 CROSS_CXX := $(CROSS_COMPILE)g++
 
 # Picoclaw version
-PICOCLAW_TAG := v0.2.1
+PICOCLAW_TAG := v0.2.3
 PICOCLAW_SRC := $(CURDIR)/picoclaw
 
 # Number of parallel jobs
@@ -48,6 +48,39 @@ clone:
 	@git submodule update --init --force picoclaw
 	@cd $(PICOCLAW_SRC) && git checkout $(PICOCLAW_TAG) 2>/dev/null || true
 
+	@# Apply patches: add arm (32-bit) support for feishu channel
+	@if [ -d "$(CURDIR)/patch" ] && [ -f "$(CURDIR)/patch/0001-add-arm-support-to-feishu.patch" ]; then \
+		if ! grep -q "arm ||" $(PICOCLAW_SRC)/pkg/channels/feishu/feishu_64.go 2>/dev/null; then \
+			echo "Applying patch: 0001-add-arm-support-to-feishu.patch"; \
+			git -C $(PICOCLAW_SRC) apply --ignore-whitespace $(CURDIR)/patch/0001-add-arm-support-to-feishu.patch; \
+		fi; \
+	fi
+
+	@# Apply patches: add read_image tool
+	@if [ -d "$(CURDIR)/patch" ] && [ -f "$(CURDIR)/patch/0002-add-read-image-tool.patch" ]; then \
+		if [ ! -f $(PICOCLAW_SRC)/pkg/tools/read_image.go ]; then \
+			echo "Applying patch: 0002-add-read-image-tool.patch"; \
+			git -C $(PICOCLAW_SRC) apply --ignore-whitespace $(CURDIR)/patch/0002-add-read-image-tool.patch; \
+		fi; \
+	fi
+
+	@# Copy modified config files if they exist in local overrides
+	@if [ -f $(CURDIR)/overrides/pkg/config/config.go ]; then \
+		cp $(CURDIR)/overrides/pkg/config/config.go $(PICOCLAW_SRC)/pkg/config/config.go; \
+	fi
+	@if [ -f $(CURDIR)/overrides/pkg/config/defaults.go ]; then \
+		cp $(CURDIR)/overrides/pkg/config/defaults.go $(PICOCLAW_SRC)/pkg/config/defaults.go; \
+	fi
+	@if [ -f $(CURDIR)/overrides/pkg/agent/instance.go ]; then \
+		cp $(CURDIR)/overrides/pkg/agent/instance.go $(PICOCLAW_SRC)/pkg/agent/instance.go; \
+	fi
+	@if [ -f $(CURDIR)/overrides/pkg/agent/loop.go ]; then \
+		cp $(CURDIR)/overrides/pkg/agent/loop.go $(PICOCLAW_SRC)/pkg/agent/loop.go; \
+	fi
+	@if [ -f $(CURDIR)/overrides/pkg/tools/read_image.go ]; then \
+		cp $(CURDIR)/overrides/pkg/tools/read_image.go $(PICOCLAW_SRC)/pkg/tools/read_image.go; \
+	fi
+
 generate:
 	@echo "Running go generate..."
 	@cd $(PICOCLAW_SRC) && \
@@ -57,6 +90,16 @@ generate:
 build: clone generate
 	@echo "Building picoclaw..."
 	@mkdir -p $(PKG_BIN)
+
+	@# Fix feishu SDK 32-bit compatibility (math.MaxInt64 overflow on 32-bit)
+	@GOMOD=$$(go env GOMODCACHE) && \
+	if [ -d "$$GOMOD" ]; then \
+		SDKPATH="$$GOMOD/github.com/larksuite/oapi-sdk-go/v3@v3.5.3/service/drive/v1/api_ext.go"; \
+		if [ -f "$$SDKPATH" ] && grep -q "math.MaxInt64" "$$SDKPATH"; then \
+			echo "Fixing feishu SDK 32-bit compatibility..."; \
+			sed -i 's/math.MaxInt64/math.MaxInt/g' "$$SDKPATH"; \
+		fi; \
+	fi
 
 	@( \
 		export CGO_ENABLED=1 && \

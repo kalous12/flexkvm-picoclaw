@@ -4,7 +4,7 @@ Picoclaw AI Agent ARMv7 交叉编译
 
 ## 版本
 
-- Picoclaw: v0.2.1
+- Picoclaw: v0.2.3
 
 ## 编译
 
