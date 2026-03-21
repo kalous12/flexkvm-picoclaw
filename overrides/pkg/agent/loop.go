@@ -195,6 +195,7 @@ func registerSharedTools(
 				cfg.Agents.Defaults.RestrictToWorkspace,
 				cfg.Agents.Defaults.GetMaxMediaSize(),
 				nil,
+				cfg.Tools.AllowSafePaths,
 			)
 			agent.Tools.Register(sendFileTool)
 		}
@@ -1348,9 +1349,45 @@ func (al *AgentLoop) runLLMIteration(
 					})
 			}
 
-			// Note: Tool-returned Media is sent to LLM via toolResultMsg.Media below,
-			// not as outbound media to user. Don't send tool Media to user - it will be
-			// analyzed by the LLM and the analysis result will be sent to user instead.
+			// Send tool Media to user directly for send_file tool
+			// This allows images/files to be sent to channels like Feishu
+			if r.tc.Name == "send_file" && len(r.result.Media) > 0 && al.mediaStore != nil {
+				mediaParts := make([]bus.MediaPart, 0, len(r.result.Media))
+				for _, ref := range r.result.Media {
+					_, meta, err := al.mediaStore.ResolveWithMeta(ref)
+					if err != nil {
+						logger.WarnCF("agent", "Failed to resolve media metadata",
+							map[string]any{"ref": ref, "error": err.Error()})
+						continue
+					}
+					mediaType := inferMediaType(meta.Filename, meta.ContentType)
+					mediaParts = append(mediaParts, bus.MediaPart{
+						Type:        mediaType,
+						Ref:         ref,
+						Filename:    meta.Filename,
+						ContentType: meta.ContentType,
+					})
+				}
+				if len(mediaParts) > 0 {
+					if err := al.bus.PublishOutboundMedia(ctx, bus.OutboundMediaMessage{
+						Channel: opts.Channel,
+						ChatID:  opts.ChatID,
+						Parts:   mediaParts,
+					}); err != nil {
+						logger.WarnCF("agent", "Failed to send tool media to user",
+							map[string]any{
+								"tool":  r.tc.Name,
+								"error": err.Error(),
+							})
+					} else {
+						logger.InfoCF("agent", "Sent tool media to user",
+							map[string]any{
+								"tool":        r.tc.Name,
+								"media_count": len(mediaParts),
+							})
+					}
+				}
+			}
 
 			// Determine content for LLM based on tool result
 			contentForLLM := r.result.ForLLM

@@ -12,9 +12,9 @@ An intelligent assistant that can analyze screenshots and control remote compute
 
 | Item | Value |
 |------|-------|
-| CLI Path | `/root/.picoclaw/flexkvm/bin/flexkvm_cli` |
-| Screenshot Dir | `/root/.picoclaw/flexkvm/image` |
-| Screenshot File | `screenshot.jpg` |
+| CLI Path | `flexkvm_cli` |
+| Screenshot Dir | `/tmp/` |
+| Screenshot Path | `/tmp/screenshot.jpg` |
 
 ---
 
@@ -23,7 +23,7 @@ An intelligent assistant that can analyze screenshots and control remote compute
 ### Step 1: Take Screenshot
 
 ```bash
-/root/.picoclaw/flexkvm/bin/flexkvm_cli video --snapshot /root/.picoclaw/flexkvm/image/screenshot.jpg
+flexkvm_cli video --snapshot /tmp/screenshot.jpg
 ```
 
 ### Step 2: Analyze with Vision Model
@@ -31,7 +31,7 @@ An intelligent assistant that can analyze screenshots and control remote compute
 Use `read_image` tool - this will send the image to vision model for analysis:
 
 ```
-path: "/root/.picoclaw/flexkvm/image/screenshot.jpg"
+path: "/tmp/screenshot.jpg"
 ```
 
 ### Step 3: Vision Model Analysis Prompt
@@ -56,19 +56,23 @@ When you call read_image, the vision model will analyze and return:
 - 这是什么界面？(桌面/浏览器/应用/登录/文件管理器等)
 - 大致分辨率？
 
-### 2. 主要元素位置 (坐标描述)
+### 2. 鼠标信息
+   - 是否存在鼠标指针？
+   - 鼠标指针位置？
+
+### 3. 主要元素位置 (坐标描述)
 - 顶部栏: 窗口控制按钮(关闭/最小化/最大化)位置
 - 任务栏: 开始菜单/托盘图标位置
 - 主要内容区: 中心内容/主要按钮/输入框位置
 
-### 3. 可点击元素
+### 4. 可点击元素
 | 元素 | 位置 | 描述 |
 |------|------|------|
 | 按钮A | 右上角 | 颜色xx, 文字"确定" |
 | 输入框 | 中心偏上 | 占位符"请输入..." |
 | 链接 | 左侧 | 文字"了解更多" |
 
-### 4. 下一步建议
+### 5. 下一步建议
 - 需要点击哪个元素？
 - 需要输入什么内容？
 ```
@@ -81,38 +85,38 @@ When you call read_image, the vision model will analyze and return:
 
 ```bash
 # Click at position (x,y) on 1920x1080 screen
-/root/.picoclaw/flexkvm/bin/flexkvm_cli mouse --abs 960,540 --res 1920x1080
+flexkvm_cli mouse --abs 960,540 --res 1920x1080
 
 # Left/Right click
-/root/.picoclaw/flexkvm/bin/flexkvm_cli mouse --click left
-/root/.picoclaw/flexkvm/bin/flexkvm_cli mouse --click right
-/root/.picoclaw/flexkvm/bin/flexkvm_cli mouse --click middle
+flexkvm_cli mouse --click left
+flexkvm_cli mouse --click right
+flexkvm_cli mouse --click middle
 
 # Relative movement (-127 to +127)
-/root/.picoclaw/flexkvm/bin/flexkvm_cli mouse --rel 50,0
+flexkvm_cli mouse --rel 50,0
 ```
 
 ### Mouse Drag
 
 ```bash
 # Drag to absolute position (press, move, release)
-/root/.picoclaw/flexkvm/bin/flexkvm_cli mouse --drag-abs 800,600 --res 1920x1080
+flexkvm_cli mouse --drag-abs 800,600 --res 1920x1080
 
 # Drag with relative movement
-/root/.picoclaw/flexkvm/bin/flexkvm_cli mouse --drag-rel 100,0
+flexkvm_cli mouse --drag-rel 100,0
 ```
 
 ### Mouse Scroll Wheel
 
 ```bash
 # Scroll up/down (positive=up, negative=down, range -127 to 127)
-/root/.picoclaw/flexkvm/bin/flexkvm_cli mouse --scroll 1
-/root/.picoclaw/flexkvm/bin/flexkvm_cli mouse --scroll -1
-/root/.picoclaw/flexkvm/bin/flexkvm_cli mouse --scroll -5
+flexkvm_cli mouse --scroll 1
+flexkvm_cli mouse --scroll -1
+flexkvm_cli mouse --scroll -5
 
 # Continuous scrolling
 for i in {1..10}; do
-    /root/.picoclaw/flexkvm/bin/flexkvm_cli mouse --scroll -1
+    flexkvm_cli mouse --scroll -1
     sleep 0.1
 done
 ```
@@ -121,26 +125,26 @@ done
 
 ```bash
 # Set absolute mode (default)
-/root/.picoclaw/flexkvm/bin/flexkvm_cli mouse --mode absolute
+flexkvm_cli mouse --mode absolute
 
 # Set relative mode
-/root/.picoclaw/flexkvm/bin/flexkvm_cli mouse --mode relative
+flexkvm_cli mouse --mode relative
 ```
 
 ### Mouse Jiggler (防屏保)
 
 ```bash
 # Enable jiggler (keep mouse moving to prevent screensaver)
-/root/.picoclaw/flexkvm/bin/flexkvm_cli mouse --jiggler on
+flexkvm_cli mouse --jiggler on
 
 # Disable jiggler
-/root/.picoclaw/flexkvm/bin/flexkvm_cli mouse --jiggler off
+flexkvm_cli mouse --jiggler off
 ```
 
 ### Check Mouse Status
 
 ```bash
-/root/.picoclaw/flexkvm/bin/flexkvm_cli mouse --info
+flexkvm_cli mouse --info
 # Output: {"connected": true, "enabled": true, "mode": "absolute", "jiggler": false}
 ```
 
@@ -150,16 +154,16 @@ done
 
 ```bash
 # Type text
-/root/.picoclaw/flexkvm/bin/flexkvm_cli keyboard --string "Hello World"
+flexkvm_cli keyboard --string "Hello World"
 
 # Press key
-/root/.picoclaw/flexkvm/bin/flexkvm_cli keyboard --press enter
+flexkvm_cli keyboard --press enter
 
 # Keyboard shortcuts
-/root/.picoclaw/flexkvm/bin/flexkvm_cli keyboard --press ctrl,c
-/root/.picoclaw/flexkvm/bin/flexkvm_cli keyboard --press ctrl,v
-/root/.picoclaw/flexkvm/bin/flexkvm_cli keyboard --press alt,f4
-/root/.picoclaw/flexkvm/bin/flexkvm_cli keyboard --press meta,r
+flexkvm_cli keyboard --press ctrl,c
+flexkvm_cli keyboard --press ctrl,v
+flexkvm_cli keyboard --press alt,f4
+flexkvm_cli keyboard --press meta,r
 ```
 
 ---
@@ -176,15 +180,15 @@ User: "点击确定按钮"
 4. Click at that position:
 
 ```bash
-/root/.picoclaw/flexkvm/bin/flexkvm_cli mouse --abs 960,540 --res 1920x1080
-/root/.picoclaw/flexkvm/bin/flexkvm_cli mouse --click left
+flexkvm_cli mouse --abs 960,540 --res 1920x1080
+flexkvm_cli mouse --click left
 ```
 
 ### Example 2: Scroll and Find Element
 
 User: "向下滚动，找到设置按钮"
 
-1. Scroll down: `/root/.picoclaw/flexkvm/bin/flexkvm_cli mouse --scroll -3`
+1. Scroll down: `flexkvm_cli mouse --scroll -3`
 2. Take new screenshot
 3. Analyze with read_image
 4. Find settings button location
@@ -196,8 +200,8 @@ User: "在搜索框输入 hello"
 
 1. Analyze screenshot to find input field position
 2. Click in the input field
-3. Type: `/root/.picoclaw/flexkvm/bin/flexkvm_cli keyboard --string "hello"`
-4. Press Enter: `/root/.picoclaw/flexkvm/bin/flexkvm_cli keyboard --press enter`
+3. Type: `flexkvm_cli keyboard --string "hello"`
+4. Press Enter: `flexkvm_cli keyboard --press enter`
 
 ---
 
@@ -205,10 +209,10 @@ User: "在搜索框输入 hello"
 
 ```bash
 # Get video info
-/root/.picoclaw/flexkvm/bin/flexkvm_cli video --info
+flexkvm_cli video --info
 
 # Set video quality (low/medium/high/ultra)
-/root/.picoclaw/flexkvm/bin/flexkvm_cli video --mode high
+flexkvm_cli video --mode high
 ```
 
 1. **Always analyze screenshot first** - Use read_image tool to understand what's on screen
@@ -228,7 +232,7 @@ User: "在搜索框输入 hello"
 
 | Task | Command |
 |------|---------|
-| Screenshot | `flexkvm_cli video --snapshot /root/.picoclaw/flexkvm/image/screenshot.jpg` |
+| Screenshot | `flexkvm_cli video --snapshot /tmp/screenshot.jpg` |
 | Analyze | Use `read_image` tool |
 | Move mouse | `flexkvm_cli mouse --abs X,Y --res WxH` |
 | Left/Right/Middle click | `flexkvm_cli mouse --click left/right/middle` |

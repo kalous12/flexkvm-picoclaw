@@ -80,6 +80,15 @@ clone:
 	@if [ -f $(CURDIR)/overrides/pkg/tools/read_image.go ]; then \
 		cp $(CURDIR)/overrides/pkg/tools/read_image.go $(PICOCLAW_SRC)/pkg/tools/read_image.go; \
 	fi
+	@if [ -f $(CURDIR)/overrides/pkg/tools/shell.go ]; then \
+		cp $(CURDIR)/overrides/pkg/tools/shell.go $(PICOCLAW_SRC)/pkg/tools/shell.go; \
+	fi
+	@if [ -f $(CURDIR)/overrides/pkg/tools/send_file.go ]; then \
+		cp $(CURDIR)/overrides/pkg/tools/send_file.go $(PICOCLAW_SRC)/pkg/tools/send_file.go; \
+	fi
+	@if [ -f $(CURDIR)/overrides/pkg/tools/filesystem.go ]; then \
+		cp $(CURDIR)/overrides/pkg/tools/filesystem.go $(PICOCLAW_SRC)/pkg/tools/filesystem.go; \
+	fi
 
 generate:
 	@echo "Running go generate..."
