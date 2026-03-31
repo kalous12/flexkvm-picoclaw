@@ -66,6 +66,15 @@ clone:
 	@echo "Applying patch: read_image tool..."
 	@cd $(PICOCLAW_SRC) && git apply $(CURDIR)/patch/0003-add-read-image-tool.patch 2>/dev/null || echo "  patch already applied or failed"
 
+	@# Apply patch: fix tool result Media field
+	@echo "Applying patch: fix tool result Media field..."
+	@cd $(PICOCLAW_SRC) && git apply $(CURDIR)/patch/0004-fix-tool-result-media-field.patch 2>/dev/null || echo "  patch already applied or failed"
+
+	@# Patch larksuite SDK for ARM32: fix math.MaxInt64 overflow
+	@echo "Patching larksuite SDK for ARM32 int overflow..."
+	@LARKSDK_PATH=$$(go env GOPATH)/pkg/mod/github.com/larksuite/oapi-sdk-go/v3@v3.5.3 && \
+		sed -i 's/math\.MaxInt64/math.MaxInt32/g' "$${LARKSDK_PATH}/service/drive/v1/api_ext.go" 2>/dev/null || true
+
 build: clone
 	@echo "Building picoclaw..."
 	@mkdir -p $(PKG_BIN)
@@ -96,11 +105,11 @@ build-launcher: clone
 
 	@# Build frontend first
 	@echo "Building frontend..."
-	@cd $(PICOCLAW_SRC)/web && \
-		if [ ! -d frontend/node_modules ] || \
-		   [ frontend/package.json -nt frontend/node_modules ] || \
-		   [ frontend/pnpm-lock.yaml -nt frontend/node_modules ]; then \
-			cd frontend && pnpm install --frozen-lockfile; \
+	@cd $(PICOCLAW_SRC)/web/frontend && \
+		if [ ! -d node_modules ] || \
+		   [ package.json -nt node_modules ] || \
+		   [ pnpm-lock.yaml -nt node_modules ]; then \
+			pnpm install --frozen-lockfile; \
 		fi && \
 		pnpm build:backend
 

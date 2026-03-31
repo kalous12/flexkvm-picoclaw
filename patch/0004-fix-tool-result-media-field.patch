@@ -1,0 +1,12 @@
+diff --git a/pkg/agent/loop.go b/pkg/agent/loop.go
+index d7461e7..4c8cd3d 100644
+--- a/pkg/agent/loop.go
++++ b/pkg/agent/loop.go
+@@ -2532,6 +2532,7 @@ turnLoop:
+ 			toolResultMsg := providers.Message{
+ 				Role:       "tool",
+ 				Content:    contentForLLM,
++				Media:      toolResult.Media,
+ 				ToolCallID: toolCallID,
+ 			}
+ 			al.emitEvent(
