@@ -7,8 +7,8 @@ index 8807256..c4a96d2 100644
  		toolsRegistry.Register(tools.NewReadFileTool(workspace, readRestrict, maxReadFileSize, allowReadPaths))
  	}
 +	if cfg.Tools.IsToolEnabled("read_image") {
-+		maxReadFileSize := cfg.Tools.ReadFile.MaxReadFileSize
-+		toolsRegistry.Register(tools.NewReadImageTool(workspace, readRestrict, maxReadFileSize, allowReadPaths))
++		maxMediaSize := cfg.Agents.Defaults.GetMaxMediaSize()
++		toolsRegistry.Register(tools.NewReadImageTool(workspace, readRestrict, maxMediaSize, allowReadPaths))
 +	}
  	if cfg.Tools.IsToolEnabled("write_file") {
  		toolsRegistry.Register(tools.NewWriteFileTool(workspace, restrict, allowWritePaths))
