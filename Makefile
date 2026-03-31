@@ -18,8 +18,8 @@ CROSS_COMPILE ?= arm-rockchip830-linux-uclibcgnueabihf-
 CROSS_CC := $(CROSS_COMPILE)gcc
 CROSS_CXX := $(CROSS_COMPILE)g++
 
-# Picoclaw version
-PICOCLAW_TAG := v0.2.3
+# Picoclaw version (use latest commit for newest features)
+PICOCLAW_TAG := c36b06a
 PICOCLAW_SRC := $(CURDIR)/picoclaw
 
 # Number of parallel jobs
@@ -28,9 +28,9 @@ JOBS ?= $(shell nproc)
 # Go version (from picoclaw/go.mod)
 GO_VERSION := 1.23
 
-.PHONY: all clean clone info help build build-launcher generate
+.PHONY: all clean clone info help build build-launcher
 
-all: info clone build install
+all: info clone build build-launcher install
 	@echo "Build $(PKG_NAME) done"
 
 info:
@@ -48,67 +48,27 @@ clone:
 	@git submodule update --init --force picoclaw
 	@cd $(PICOCLAW_SRC) && git checkout $(PICOCLAW_TAG) 2>/dev/null || true
 
-	@# Apply patches: add arm (32-bit) support for feishu channel
-	@if [ -d "$(CURDIR)/patch" ] && [ -f "$(CURDIR)/patch/0001-add-arm-support-to-feishu.patch" ]; then \
-		if ! grep -q "arm ||" $(PICOCLAW_SRC)/pkg/channels/feishu/feishu_64.go 2>/dev/null; then \
-			echo "Applying patch: 0001-add-arm-support-to-feishu.patch"; \
-			git -C $(PICOCLAW_SRC) apply --ignore-whitespace $(CURDIR)/patch/0001-add-arm-support-to-feishu.patch; \
-		fi; \
-	fi
+	@# Apply patches: add ARM32 (arm) support to feishu channel
+	@echo "Patching feishu channel for ARM32 support..."
+	@cd $(PICOCLAW_SRC)/pkg/channels/feishu && \
+		sed -i 's/amd64 || arm64 || riscv64 || mips64 || ppc64/amd64 || arm64 || arm || riscv64 || mips64 || ppc64/' feishu_64.go && \
+		rm -f feishu_32.go
 
-	@# Apply patches: add read_image tool
-	@if [ -d "$(CURDIR)/patch" ] && [ -f "$(CURDIR)/patch/0002-add-read-image-tool.patch" ]; then \
-		if [ ! -f $(PICOCLAW_SRC)/pkg/tools/read_image.go ]; then \
-			echo "Applying patch: 0002-add-read-image-tool.patch"; \
-			git -C $(PICOCLAW_SRC) apply --ignore-whitespace $(CURDIR)/patch/0002-add-read-image-tool.patch; \
-		fi; \
-	fi
+	@# Override onboard workspace with flexkvm custom configuration
+	@echo "Overriding onboard workspace with flexkvm config..."
+	@cp -rf $(CURDIR)/workspace/* $(PICOCLAW_SRC)/cmd/picoclaw/internal/onboard/workspace/
 
-	@# Copy modified config files if they exist in local overrides
-	@if [ -f $(CURDIR)/overrides/pkg/config/config.go ]; then \
-		cp $(CURDIR)/overrides/pkg/config/config.go $(PICOCLAW_SRC)/pkg/config/config.go; \
-	fi
-	@if [ -f $(CURDIR)/overrides/pkg/config/defaults.go ]; then \
-		cp $(CURDIR)/overrides/pkg/config/defaults.go $(PICOCLAW_SRC)/pkg/config/defaults.go; \
-	fi
-	@if [ -f $(CURDIR)/overrides/pkg/agent/instance.go ]; then \
-		cp $(CURDIR)/overrides/pkg/agent/instance.go $(PICOCLAW_SRC)/pkg/agent/instance.go; \
-	fi
-	@if [ -f $(CURDIR)/overrides/pkg/agent/loop.go ]; then \
-		cp $(CURDIR)/overrides/pkg/agent/loop.go $(PICOCLAW_SRC)/pkg/agent/loop.go; \
-	fi
-	@if [ -f $(CURDIR)/overrides/pkg/tools/read_image.go ]; then \
-		cp $(CURDIR)/overrides/pkg/tools/read_image.go $(PICOCLAW_SRC)/pkg/tools/read_image.go; \
-	fi
-	@if [ -f $(CURDIR)/overrides/pkg/tools/shell.go ]; then \
-		cp $(CURDIR)/overrides/pkg/tools/shell.go $(PICOCLAW_SRC)/pkg/tools/shell.go; \
-	fi
-	@if [ -f $(CURDIR)/overrides/pkg/tools/send_file.go ]; then \
-		cp $(CURDIR)/overrides/pkg/tools/send_file.go $(PICOCLAW_SRC)/pkg/tools/send_file.go; \
-	fi
-	@if [ -f $(CURDIR)/overrides/pkg/tools/filesystem.go ]; then \
-		cp $(CURDIR)/overrides/pkg/tools/filesystem.go $(PICOCLAW_SRC)/pkg/tools/filesystem.go; \
-	fi
+	@# Patch defaults: allow read outside workspace
+	@echo "Patching default config: allow_read_outside_workspace=true..."
+	@sed -i '/RestrictToWorkspace:.*true,/a\					AllowReadOutsideWorkspace:       true,' $(PICOCLAW_SRC)/pkg/config/defaults.go
 
-generate:
-	@echo "Running go generate..."
-	@cd $(PICOCLAW_SRC) && \
-		rm -rf ./cmd/picoclaw/workspace 2>/dev/null || true && \
-		go generate ./...
+	@# Apply patch: add read_image tool for FlexKVM
+	@echo "Applying patch: read_image tool..."
+	@cd $(PICOCLAW_SRC) && git apply $(CURDIR)/patch/0003-add-read-image-tool.patch 2>/dev/null || echo "  patch already applied or failed"
 
-build: clone generate
+build: clone
 	@echo "Building picoclaw..."
 	@mkdir -p $(PKG_BIN)
-
-	@# Fix feishu SDK 32-bit compatibility (math.MaxInt64 overflow on 32-bit)
-	@GOMOD=$$(go env GOMODCACHE) && \
-	if [ -d "$$GOMOD" ]; then \
-		SDKPATH="$$GOMOD/github.com/larksuite/oapi-sdk-go/v3@v3.5.3/service/drive/v1/api_ext.go"; \
-		if [ -f "$$SDKPATH" ] && grep -q "math.MaxInt64" "$$SDKPATH"; then \
-			echo "Fixing feishu SDK 32-bit compatibility..."; \
-			sed -i 's/math.MaxInt64/math.MaxInt/g' "$$SDKPATH"; \
-		fi; \
-	fi
 
 	@( \
 		export CGO_ENABLED=1 && \
@@ -120,6 +80,7 @@ build: clone generate
 		export CGO_LDFLAGS="-static -lpthread -lm" && \
 		cd $(PICOCLAW_SRC) && \
 		GOPROXY=https://goproxy.cn,direct go build \
+			-tags "goolm,stdjson" \
 			-ldflags="-s -w -buildid= -compressdwarf=true -extldflags=-s" \
 			-gcflags="all=-l -B" \
 			-trimpath \
@@ -133,9 +94,15 @@ build-launcher: clone
 	@echo "Building picoclaw-launcher..."
 	@mkdir -p $(PKG_BIN)
 
-	@if [ ! -f $(PICOCLAW_SRC)/web/backend/dist/index.html ]; then \
-		echo "Frontend not built, skipping launcher build"; \
-	fi
+	@# Build frontend first
+	@echo "Building frontend..."
+	@cd $(PICOCLAW_SRC)/web && \
+		if [ ! -d frontend/node_modules ] || \
+		   [ frontend/package.json -nt frontend/node_modules ] || \
+		   [ frontend/pnpm-lock.yaml -nt frontend/node_modules ]; then \
+			cd frontend && pnpm install --frozen-lockfile; \
+		fi && \
+		pnpm build:backend
 
 	@( \
 		export CGO_ENABLED=1 && \
@@ -147,19 +114,23 @@ build-launcher: clone
 		export CGO_LDFLAGS="-static -lpthread -lm" && \
 		cd $(PICOCLAW_SRC) && \
 		GOPROXY=https://goproxy.cn,direct go build \
-			-ldflags="-s -w -buildid=" \
+			-tags "goolm,stdjson" \
+			-ldflags="-s -w -buildid= -compressdwarf=true -extldflags=-s" \
+			-gcflags="all=-l -B" \
 			-trimpath \
 			-o $(CURDIR)/$(PKG_BIN)/picoclaw-launcher \
 			./web/backend \
 	)
 
-install: build
+	@$(CROSS_COMPILE)strip -s $(PKG_BIN)/picoclaw-launcher 2>/dev/null || true
+
+install: build build-launcher
 	@echo "Binaries ready in $(OUTPUT_DIR)/"
 
 # Compress with upx
 	@echo ""
 	@echo "Compressing with upx..."
-	@which upx >/dev/null 2>&1 && upx --best --lzma $(OUTPUT_DIR)/picoclaw || echo "  upx not found, skipping compression"
+	@which upx >/dev/null 2>&1 && upx --best --lzma $(OUTPUT_DIR)/picoclaw $(OUTPUT_DIR)/picoclaw-launcher || echo "  upx not found, skipping compression"
 
 	@echo ""
 	@echo "Installed files:"

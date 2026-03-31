@@ -1,0 +1,174 @@
+diff --git a/pkg/agent/instance.go b/pkg/agent/instance.go
+index 8807256..c4a96d2 100644
+--- a/pkg/agent/instance.go
++++ b/pkg/agent/instance.go
+@@ -79,6 +79,10 @@ func NewAgentInstance(
+ 		maxReadFileSize := cfg.Tools.ReadFile.MaxReadFileSize
+ 		toolsRegistry.Register(tools.NewReadFileTool(workspace, readRestrict, maxReadFileSize, allowReadPaths))
+ 	}
++	if cfg.Tools.IsToolEnabled("read_image") {
++		maxReadFileSize := cfg.Tools.ReadFile.MaxReadFileSize
++		toolsRegistry.Register(tools.NewReadImageTool(workspace, readRestrict, maxReadFileSize, allowReadPaths))
++	}
+ 	if cfg.Tools.IsToolEnabled("write_file") {
+ 		toolsRegistry.Register(tools.NewWriteFileTool(workspace, restrict, allowWritePaths))
+ 	}
+diff --git a/pkg/config/config.go b/pkg/config/config.go
+index 87cb31f..a0b8286 100644
+--- a/pkg/config/config.go
++++ b/pkg/config/config.go
+@@ -835,6 +835,7 @@ type ToolsConfig struct {
+ 	ListDir         ToolConfig         `json:"list_dir"          yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_LIST_DIR_"`
+ 	Message         ToolConfig         `json:"message"           yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_MESSAGE_"`
+ 	ReadFile        ReadFileToolConfig `json:"read_file"         yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_READ_FILE_"`
++	ReadImage       ToolConfig         `json:"read_image"        yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_READ_IMAGE_"`
+ 	SendFile        ToolConfig         `json:"send_file"         yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_SEND_FILE_"`
+ 	Spawn           ToolConfig         `json:"spawn"             yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_SPAWN_"`
+ 	SpawnStatus     ToolConfig         `json:"spawn_status"      yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_SPAWN_STATUS_"`
+diff --git a/pkg/config/defaults.go b/pkg/config/defaults.go
+index bded97f..6a65aba 100644
+--- a/pkg/config/defaults.go
++++ b/pkg/config/defaults.go
+@@ -472,6 +472,9 @@ func DefaultConfig() *Config {
+ 				Enabled:         true,
+ 				MaxReadFileSize: 64 * 1024, // 64KB
+ 			},
++			ReadImage: ToolConfig{
++				Enabled: true,
++			},
+ 			Spawn: ToolConfig{
+ 				Enabled: true,
+ 			},
+diff --git a/pkg/tools/read_image.go b/pkg/tools/read_image.go
+new file mode 100644
+index 0000000..bb76e66
+--- /dev/null
++++ b/pkg/tools/read_image.go
+@@ -0,0 +1,126 @@
++package tools
++
++import (
++	"context"
++	"encoding/base64"
++	"fmt"
++	"os"
++	"path/filepath"
++	"regexp"
++	"strings"
++
++	"github.com/sipeed/picoclaw/pkg/config"
++)
++
++// ReadImageTool allows the LLM to read and analyze local image files.
++// The image is converted to base64 Data URL and returned for vision model processing.
++type ReadImageTool struct {
++	workspace   string
++	restrict    bool
++	maxFileSize int
++	allowPaths  []*regexp.Regexp
++}
++
++func NewReadImageTool(workspace string, restrict bool, maxFileSize int, allowPaths []*regexp.Regexp) *ReadImageTool {
++	if maxFileSize <= 0 {
++		maxFileSize = config.DefaultMaxMediaSize
++	}
++	return &ReadImageTool{
++		workspace:   workspace,
++		restrict:    restrict,
++		maxFileSize: maxFileSize,
++		allowPaths:  allowPaths,
++	}
++}
++
++func (t *ReadImageTool) Name() string { return "read_image" }
++func (t *ReadImageTool) Description() string {
++	return "Read an image file and prepare it for vision analysis. Returns the image as base64 Data URL that can be used by the LLM to analyze the image."
++}
++
++func (t *ReadImageTool) Parameters() map[string]any {
++	return map[string]any{
++		"type": "object",
++		"properties": map[string]any{
++			"path": map[string]any{
++				"type":        "string",
++				"description": "Path to the image file. Relative paths are resolved from workspace.",
++			},
++		},
++		"required": []string{"path"},
++	}
++}
++
++func (t *ReadImageTool) Execute(ctx context.Context, args map[string]any) *ToolResult {
++	path, _ := args["path"].(string)
++	if strings.TrimSpace(path) == "" {
++		return ErrorResult("path is required")
++	}
++
++	resolved, err := validatePathWithAllowPaths(path, t.workspace, t.restrict, t.allowPaths)
++	if err != nil {
++		return ErrorResult(fmt.Sprintf("invalid path: %v", err))
++	}
++
++	info, err := os.Stat(resolved)
++	if err != nil {
++		return ErrorResult(fmt.Sprintf("file not found: %v", err))
++	}
++	if info.IsDir() {
++		return ErrorResult("path is a directory, expected an image file")
++	}
++	if info.Size() > int64(t.maxFileSize) {
++		return ErrorResult(fmt.Sprintf(
++			"file too large: %d bytes (max %d bytes)",
++			info.Size(), t.maxFileSize,
++		))
++	}
++
++	// Detect MIME type
++	mime := detectMediaType(resolved)
++	if !strings.HasPrefix(mime, "image/") {
++		return ErrorResult(fmt.Sprintf("not an image file: %s", mime))
++	}
++
++	// Read and encode to base64
++	data, err := os.ReadFile(resolved)
++	if err != nil {
++		return ErrorResult(fmt.Sprintf("failed to read file: %v", err))
++	}
++
++	encoded := base64.StdEncoding.EncodeToString(data)
++	dataURL := fmt.Sprintf("data:%s;base64,%s", mime, encoded)
++
++	// Return the Data URL for vision model analysis via Media field
++	filename := filepath.Base(resolved)
++	prompt := `分析这张远程电脑截图，为后续操作提供精确信息。
++
++## 输出要求
++
++### 1. 界面概览
++- 界面类型：（桌面/浏览器/应用/登录/弹窗/文件管理器等）
++- 实际分辨率：检测图片实际像素尺寸
++- 主窗口：当前活动窗口是什么
++
++### 2. 鼠标状态
++- 鼠标指针是否存在？位置在哪里？
++- 鼠标悬停的元素是什么
++
++### 3. 可交互元素（按重要性排序）
++使用精确坐标，格式：元素名称 | 坐标 | 操作类型 | 描述
++
++示例：
++- 确定 | (960,540) | click | 绿色按钮，对话框确认
++- 搜索框 | (500,100) | input | 空白，占位符"搜索..."
++- 关闭 | (1900,10) | click | 红色X按钮
++
++### 4. 当前焦点
++- 哪个元素处于激活/焦点状态？
++- 光标在哪个输入框？`
++
++	return &ToolResult{
++		ForLLM: fmt.Sprintf("图片 '%s' 已加载。\n\n%s", filename, prompt),
++		Media:  []string{dataURL},
++		Silent: false,
++	}
++}
+\ No newline at end of file
