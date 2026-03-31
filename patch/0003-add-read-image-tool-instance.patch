@@ -1,0 +1,94 @@
+diff --git a/pkg/agent/instance.go b/pkg/agent/instance.go
+index 8807256..0db9bed 100644
+--- a/pkg/agent/instance.go
++++ b/pkg/agent/instance.go
+@@ -71,7 +71,7 @@ func NewAgentInstance(
+ 
+ 	// Compile path whitelist patterns from config.
+ 	allowReadPaths := buildAllowReadPatterns(cfg)
+-	allowWritePaths := compilePatterns(cfg.Tools.AllowWritePaths)
++	allowWritePaths := buildAllowWritePatterns(cfg)
+ 
+ 	toolsRegistry := tools.NewToolRegistry()
+ 
+@@ -79,6 +79,10 @@ func NewAgentInstance(
+ 		maxReadFileSize := cfg.Tools.ReadFile.MaxReadFileSize
+ 		toolsRegistry.Register(tools.NewReadFileTool(workspace, readRestrict, maxReadFileSize, allowReadPaths))
+ 	}
++	if cfg.Tools.IsToolEnabled("read_image") {
++		maxMediaSize := cfg.Agents.Defaults.GetMaxMediaSize()
++		toolsRegistry.Register(tools.NewReadImageTool(workspace, readRestrict, maxMediaSize, allowReadPaths))
++	}
+ 	if cfg.Tools.IsToolEnabled("write_file") {
+ 		toolsRegistry.Register(tools.NewWriteFileTool(workspace, restrict, allowWritePaths))
+ 	}
+@@ -278,14 +282,64 @@ func buildAllowReadPatterns(cfg *config.Config) []*regexp.Regexp {
+ 	}
+ 
+ 	compiled := compilePatterns(configured)
+-	mediaDirPattern := regexp.MustCompile(mediaTempDirPattern())
+-	for _, pattern := range compiled {
+-		if pattern.String() == mediaDirPattern.String() {
+-			return compiled
++
++	// Default allow paths for FlexKVM
++	defaultPaths := []*regexp.Regexp{
++		regexp.MustCompile("^/tmp/"),
++		regexp.MustCompile("^/var/"),
++		regexp.MustCompile(mediaTempDirPattern()),
++	}
++
++	result := make([]*regexp.Regexp, 0, len(compiled)+len(defaultPaths))
++	result = append(result, compiled...)
++
++	for _, def := range defaultPaths {
++		found := false
++		for _, p := range compiled {
++			if p.String() == def.String() {
++				found = true
++				break
++			}
++		}
++		if !found {
++			result = append(result, def)
++		}
++	}
++
++	return result
++}
++
++func buildAllowWritePatterns(cfg *config.Config) []*regexp.Regexp {
++	var configured []string
++	if cfg != nil {
++		configured = cfg.Tools.AllowWritePaths
++	}
++
++	compiled := compilePatterns(configured)
++
++	// Default allow paths for FlexKVM
++	defaultPaths := []*regexp.Regexp{
++		regexp.MustCompile("^/tmp/"),
++		regexp.MustCompile("^/var/"),
++	}
++
++	result := make([]*regexp.Regexp, 0, len(compiled)+len(defaultPaths))
++	result = append(result, compiled...)
++
++	for _, def := range defaultPaths {
++		found := false
++		for _, p := range compiled {
++			if p.String() == def.String() {
++				found = true
++				break
++			}
++		}
++		if !found {
++			result = append(result, def)
+ 		}
+ 	}
+ 
+-	return append(compiled, mediaDirPattern)
++	return result
+ }
+ 
+ func mediaTempDirPattern() string {
